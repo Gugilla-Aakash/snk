@@ -67,6 +67,25 @@ const createLivingCells = (
   return livingCells;
 };
 
+/**
+ * cumulative number of eaten cells after each step of the chain.
+ * used to grow the snake as it eats (see createSnake).
+ */
+const getEatenCountPerStep = (grid0: Grid, chain: Snake[]): number[] => {
+  const grid = copyGrid(grid0);
+  let eaten = 0;
+  return chain.map((snake) => {
+    const x = getHeadX(snake);
+    const y = getHeadY(snake);
+
+    if (isInside(grid, x, y) && !isEmpty(getColor(grid, x, y))) {
+      setColorEmpty(grid, x, y);
+      eaten++;
+    }
+    return eaten;
+  });
+};
+
 export const createSvg = (
   grid: Grid,
   cells: Point[] | null,
@@ -90,7 +109,12 @@ export const createSvg = (
       (grid.height + 2) * drawOptions.sizeCell,
       duration,
     ),
-    createSnake(chain, drawOptions, duration),
+    createSnake(
+      chain,
+      drawOptions,
+      duration,
+      getEatenCountPerStep(grid, chain),
+    ),
   ];
 
   const viewBox = [
