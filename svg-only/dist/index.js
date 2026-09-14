@@ -2060,43 +2060,73 @@ var getPathToPose = (snake0, target, grid) => {
 };
 
 // ../generate-snake-animation/hamiltonianRoute.ts
-var ORIENTATIONS = ["row-wise", "column-wise"];
-var pickOrientation = () => ORIENTATIONS[Math.floor(Math.random() * ORIENTATIONS.length)];
-var sweepCells = (grid, orientation) => {
+var columnHasGreen = (grid, x) => {
+  for (let y = 0;y < grid.height; y++)
+    if (!isEmpty(getColor(grid, x, y)))
+      return true;
+  return false;
+};
+var planRegions = (grid) => {
+  const regions = [];
+  for (let x = 0;x < grid.width; x++) {
+    const kind = columnHasGreen(grid, x) ? "green" : "empty";
+    const last = regions[regions.length - 1];
+    if (last && last.kind === kind)
+      last.to = x;
+    else
+      regions.push({ kind, from: x, to: x });
+  }
+  return regions;
+};
+var serpentineRect = (x0, x1, height, entry, axis) => {
   const cells = [];
-  if (orientation === "row-wise") {
-    for (let y = 0;y < grid.height; y++) {
-      if (y % 2 === 0)
-        for (let x = 0;x < grid.width; x++)
+  if (axis === "row") {
+    const rows = [];
+    for (let y = 0;y < height; y++)
+      rows.push(y);
+    if (entry === "bottom-left")
+      rows.reverse();
+    rows.forEach((y, i) => {
+      if (i % 2 === 0)
+        for (let x = x0;x <= x1; x++)
           cells.push({ x, y });
       else
-        for (let x = grid.width - 1;x >= 0; x--)
+        for (let x = x1;x >= x0; x--)
           cells.push({ x, y });
-    }
+    });
   } else {
-    for (let x = 0;x < grid.width; x++) {
-      if (x % 2 === 0)
-        for (let y = 0;y < grid.height; y++)
+    for (let x = x0;x <= x1; x++) {
+      const firstDown = entry === "top-left";
+      const down = (x - x0) % 2 === 0 ? firstDown : !firstDown;
+      if (down)
+        for (let y = 0;y < height; y++)
           cells.push({ x, y });
       else
-        for (let y = grid.height - 1;y >= 0; y--)
+        for (let y = height - 1;y >= 0; y--)
           cells.push({ x, y });
     }
   }
   return cells;
 };
-var getHamiltonianRoute = (grid, snake0, orientation) => {
+var getAdaptiveRoute = (grid, snake0) => {
   const chain = [];
   let snake = snake0;
   const stepTo = (x, y) => {
     const dx = x - getHeadX(snake);
     const dy = y - getHeadY(snake);
     if (Math.abs(dx) + Math.abs(dy) !== 1)
-      throw new Error(`hamiltonian route is not contiguous at (${x},${y})`);
+      throw new Error(`adaptive route is not contiguous at (${x},${y})`);
     if (snakeWillSelfCollide(snake, dx, dy))
-      throw new Error(`hamiltonian route collides with itself at (${x},${y})`);
+      throw new Error(`adaptive route collides with itself at (${x},${y})`);
     snake = nextSnake(snake, dx, dy);
     chain.push(snake);
+  };
+  const walk = (cells) => {
+    const list = cells.slice();
+    if (list.length && list[0].x === getHeadX(snake) && list[0].y === getHeadY(snake))
+      list.shift();
+    for (const { x, y } of list)
+      stepTo(x, y);
   };
   while (getHeadX(snake) !== 0 || getHeadY(snake) !== 0) {
     if (getHeadX(snake) !== 0)
@@ -2104,9 +2134,16 @@ var getHamiltonianRoute = (grid, snake0, orientation) => {
     else
       stepTo(0, getHeadY(snake) + Math.sign(0 - getHeadY(snake)));
   }
-  for (const { x, y } of sweepCells(grid, orientation).slice(1))
-    stepTo(x, y);
-  return chain;
+  const regions = planRegions(grid);
+  const desc = [];
+  let entry = "top-left";
+  for (const r of regions) {
+    const axis = r.kind === "green" ? "column" : "row";
+    walk(serpentineRect(r.from, r.to, grid.height, entry, axis));
+    desc.push(`${r.kind} ${r.from}-${r.to} ${axis}-wise`);
+    entry = getHeadY(snake) === 0 ? "top-left" : "bottom-left";
+  }
+  return { chain, plan: desc.join(" | ") };
 };
 
 // ../types/__fixtures__/snake.ts
@@ -2223,13 +2260,13 @@ var generateSnakeAnimation = async (source, outputs) => {
   const grid = cellsToGrid(cells);
   const snake = snake4;
   console.log("\uD83D\uDCE1 computing best route");
-  const orientation = pickOrientation();
-  console.log(`\uD83E\uDDED sweep: ${orientation}`);
   let chain;
   try {
-    chain = getHamiltonianRoute(grid, snake, orientation);
+    const route = getAdaptiveRoute(grid, snake);
+    console.log(`\uD83E\uDDED sweep: ${route.plan}`);
+    chain = route.chain;
   } catch (err) {
-    console.log(`⚠️ hamiltonian sweep failed (${err}), using solver route`);
+    console.log(`⚠️ adaptive sweep failed (${err}), using solver route`);
     chain = getBestRoute(grid, snake);
     chain.push(...getPathToPose(chain.slice(-1)[0], snake));
   }

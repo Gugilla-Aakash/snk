@@ -4,7 +4,7 @@ import { getGithubUserContribution } from "@snk/github-user-contribution";
 import { getGitlabUserContribution } from "@snk/gitlab-user-contribution";
 import { getBestRoute } from "@snk/solver/getBestRoute";
 import { getPathToPose } from "@snk/solver/getPathToPose";
-import { getHamiltonianRoute, pickOrientation } from "./hamiltonianRoute";
+import { getAdaptiveRoute } from "./hamiltonianRoute";
 import type { DrawOptions } from "@snk/svg-creator";
 import { snake4 } from "@snk/types/__fixtures__/snake";
 import { cellsToGrid } from "./cellsToGrid";
@@ -52,19 +52,20 @@ export const generateSnakeAnimation = async (
   console.log(`🎣 fetching user contribution from ${source.platform}`);
   const cells = await getUserContribution(source);
   const grid = cellsToGrid(cells);
-  // hamiltonian sweep: visit every cell exactly once, so the grown body can
-  // never touch itself (linear time, no search). falls back to the solver
-  // route if anything unexpected happens.
+  // adaptive sweep: fast horizontal passes over empty week-columns, vertical
+  // eating passes where the greens are. visits every cell exactly once, so
+  // the grown body can never touch itself (linear time, no search). falls
+  // back to the solver route if anything unexpected happens.
   const snake = snake4;
 
   console.log("📡 computing best route");
-  const orientation = pickOrientation();
-  console.log(`🧭 sweep: ${orientation}`);
   let chain;
   try {
-    chain = getHamiltonianRoute(grid, snake, orientation);
+    const route = getAdaptiveRoute(grid, snake);
+    console.log(`🧭 sweep: ${route.plan}`);
+    chain = route.chain;
   } catch (err) {
-    console.log(`⚠️ hamiltonian sweep failed (${err}), using solver route`);
+    console.log(`⚠️ adaptive sweep failed (${err}), using solver route`);
     chain = getBestRoute(grid, snake)!;
     chain.push(...getPathToPose(chain.slice(-1)[0], snake)!);
   }
