@@ -2078,6 +2078,39 @@ var planRegions = (grid) => {
   }
   return regions;
 };
+var fixRegions = (regions) => {
+  const list = regions.map((r) => ({ ...r }));
+  const normalize = () => {
+    for (let i = 0;i + 1 < list.length; ) {
+      if (list[i].kind === list[i + 1].kind) {
+        list[i].to = list[i + 1].to;
+        list.splice(i + 1, 1);
+      } else
+        i++;
+    }
+  };
+  for (let pass = 0;pass < 10; pass++) {
+    normalize();
+    const single = list.findIndex((r, i) => i < list.length - 1 && r.to === r.from);
+    if (single < 0)
+      break;
+    list[single + 1].from = list[single].from;
+    list.splice(single, 1);
+  }
+  normalize();
+  for (let pass = 0;pass < 10; pass++) {
+    normalize();
+    const odd = list.findIndex((r, i) => i < list.length - 1 && r.kind === "green" && (r.to - r.from + 1) % 2 === 1);
+    if (odd < 0)
+      break;
+    list[odd].to += 1;
+    list[odd + 1].from += 1;
+    if (list[odd + 1].from > list[odd + 1].to)
+      list.splice(odd + 1, 1);
+  }
+  normalize();
+  return list;
+};
 var serpentineRect = (x0, x1, height, entry, axis) => {
   const cells = [];
   if (axis === "row") {
@@ -2108,6 +2141,16 @@ var serpentineRect = (x0, x1, height, entry, axis) => {
   }
   return cells;
 };
+var rowClimbRect = (x0, x1, height, entry) => {
+  if (x1 <= x0)
+    return serpentineRect(x0, x1, height, entry, "column");
+  const cells = serpentineRect(x0, x1 - 1, height, entry, "row");
+  const up = entry === "top-left";
+  cells.push({ x: x1, y: up ? height - 1 : 0 });
+  for (let y = (up ? height - 1 : 0) + (up ? -1 : 1);up ? y >= 0 : y < height; y += up ? -1 : 1)
+    cells.push({ x: x1, y });
+  return cells;
+};
 var getAdaptiveRoute = (grid, snake0) => {
   const chain = [];
   let snake = snake0;
@@ -2134,13 +2177,22 @@ var getAdaptiveRoute = (grid, snake0) => {
     else
       stepTo(0, getHeadY(snake) + Math.sign(0 - getHeadY(snake)));
   }
-  const regions = planRegions(grid);
+  const regions = fixRegions(planRegions(grid));
   const desc = [];
   let entry = "top-left";
-  for (const r of regions) {
-    const axis = r.kind === "green" ? "column" : "row";
-    walk(serpentineRect(r.from, r.to, grid.height, entry, axis));
-    desc.push(`${r.kind} ${r.from}-${r.to} ${axis}-wise`);
+  for (let i = 0;i < regions.length; i++) {
+    const r = regions[i];
+    const last = i === regions.length - 1;
+    if (r.kind === "green") {
+      walk(serpentineRect(r.from, r.to, grid.height, entry, "column"));
+      desc.push(`green ${r.from}-${r.to} column-wise`);
+    } else if (last) {
+      walk(serpentineRect(r.from, r.to, grid.height, entry, "row"));
+      desc.push(`empty ${r.from}-${r.to} row-wise`);
+    } else {
+      walk(rowClimbRect(r.from, r.to, grid.height, entry));
+      desc.push(`empty ${r.from}-${r.to} row-wise`);
+    }
     entry = getHeadY(snake) === 0 ? "top-left" : "bottom-left";
   }
   return { chain, plan: desc.join(" | ") };

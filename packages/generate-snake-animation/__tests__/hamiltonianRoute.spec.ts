@@ -1,10 +1,13 @@
 import { it, expect } from "bun:test";
-import { Color, createEmptyGrid, setColor, type Grid } from "@snk/types/grid";
+import { Color, createEmptyGrid, type Grid } from "@snk/types/grid";
+import { setColor } from "@snk/types/grid";
 import { snakeToCells } from "@snk/types/snake";
 import { snake4 } from "@snk/types/__fixtures__/snake";
 import {
+  fixRegions,
   getAdaptiveRoute,
   planRegions,
+  rowClimbRect,
   serpentineRect,
   type EntryCorner,
 } from "../hamiltonianRoute";
@@ -62,7 +65,7 @@ it("sweeps an all-green grid column-wise", () => {
   expect(plan).toBe("green 0-5 column-wise");
 });
 
-it("goes horizontal over empty weeks, vertical over green weeks", () => {
+it("dives into greens from the top instead of turning away", () => {
   const grid = withGreens(10, 7, [7, 8]);
   expect(planRegions(grid)).toEqual([
     { kind: "empty", from: 0, to: 6 },
@@ -75,22 +78,59 @@ it("goes horizontal over empty weeks, vertical over green weeks", () => {
     "empty 0-6 row-wise | green 7-8 column-wise | empty 9-9 row-wise",
   );
 
-  // pins the behavior: horizontal run, then a vertical dive into the greens.
+  // horizontal run, climb, then straight down into the greens.
   const { chain } = getAdaptiveRoute(grid, snake4);
   const head = (i: number) => snakeToCells(chain[i])[0];
   expect(head(0)).toEqual({ x: 0, y: 0 });
   expect(head(1)).toEqual({ x: 1, y: 0 });
-  expect(head(48)).toEqual({ x: 6, y: 6 });
-  expect(head(49)).toEqual({ x: 7, y: 6 });
-  expect(head(50)).toEqual({ x: 7, y: 5 });
+  expect(head(48)).toEqual({ x: 6, y: 0 });
+  expect(head(49)).toEqual({ x: 7, y: 0 });
+  expect(head(50)).toEqual({ x: 7, y: 1 });
 });
 
-it("handles stray single green columns and odd heights", () => {
-  checkRoute(withGreens(9, 3, [1, 5]), "strays 9x3");
-  checkRoute(withGreens(9, 5, [0, 8]), "edges 9x5");
-  checkRoute(
-    withGreens(53, 7, [20, 45, 46, 47, 48, 49, 50, 51, 52]),
-    "real-shape",
+it("absorbs stray single green columns into horizontal runs", () => {
+  const grid = withGreens(9, 7, [4]);
+  expect(fixRegions(planRegions(grid))).toEqual([
+    { kind: "empty", from: 0, to: 8 },
+  ]);
+  checkRoute(grid, "stray");
+});
+
+it("evens out odd green widths so every dive starts at the top", () => {
+  const grid = withGreens(11, 7, [4, 5, 6]);
+  expect(fixRegions(planRegions(grid))).toEqual([
+    { kind: "empty", from: 0, to: 3 },
+    { kind: "green", from: 4, to: 7 },
+    { kind: "empty", from: 8, to: 10 },
+  ]);
+  checkRoute(grid, "odd-green");
+
+  const { chain } = getAdaptiveRoute(grid, snake4);
+  const head = (i: number) => snakeToCells(chain[i])[0];
+  // empty 0-3 row-wise with climb: 3x7 sub + 7 climb = 28 cells.
+  expect(head(27)).toEqual({ x: 3, y: 0 });
+  expect(head(28)).toEqual({ x: 4, y: 0 });
+  expect(head(29)).toEqual({ x: 4, y: 1 });
+});
+
+it("handles the real-world region shape", () => {
+  const grid = withGreens(
+    53,
+    7,
+    [2, 3, 8, 9, 22, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52],
+  );
+  expect(fixRegions(planRegions(grid))).toEqual([
+    { kind: "empty", from: 0, to: 1 },
+    { kind: "green", from: 2, to: 3 },
+    { kind: "empty", from: 4, to: 7 },
+    { kind: "green", from: 8, to: 9 },
+    { kind: "empty", from: 10, to: 42 },
+    { kind: "green", from: 43, to: 52 },
+  ]);
+  const plan = checkRoute(grid, "real-shape");
+  expect(plan).toBe(
+    "empty 0-1 row-wise | green 2-3 column-wise | empty 4-7 row-wise | " +
+      "green 8-9 column-wise | empty 10-42 row-wise | green 43-52 column-wise",
   );
 });
 
@@ -99,6 +139,24 @@ it("covers single strips of even height", () => {
   checkRoute(withGreens(4, 4, []), "all-empty 4x4");
   checkRoute(withGreens(2, 2, [1]), "tiny mixed");
   checkRoute(withGreens(1, 1, [0]), "single cell");
+});
+
+it("rowClimbRect exits on the height it entered", () => {
+  for (const [entry, first, last] of [
+    ["top-left", { x: 2, y: 0 }, { x: 5, y: 0 }],
+    ["bottom-left", { x: 2, y: 4 }, { x: 5, y: 4 }],
+  ] as [EntryCorner, { x: number; y: number }, { x: number; y: number }][]) {
+    const cells = rowClimbRect(2, 5, 5, entry);
+    expect(cells[0]).toEqual(first);
+    expect(cells[cells.length - 1]).toEqual(last);
+    expect(cells.length).toBe(4 * 5);
+    expect(new Set(cells.map((c) => `${c.x},${c.y}`)).size).toBe(4 * 5);
+    for (let i = 1; i < cells.length; i++)
+      expect(
+        Math.abs(cells[i].x - cells[i - 1].x) +
+          Math.abs(cells[i].y - cells[i - 1].y),
+      ).toBe(1);
+  }
 });
 
 it("serpentineRect starts at the entry corner and covers the rect", () => {
