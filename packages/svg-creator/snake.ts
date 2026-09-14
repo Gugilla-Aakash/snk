@@ -19,7 +19,8 @@ export type GrowthOptions = {
   maxSnakeLength?: number;
 };
 
-const DEFAULT_MAX_SNAKE_LENGTH = 48;
+/** visible body cap shared with the foraging planner's simulation. */
+export const MAX_SNAKE_LENGTH = 48;
 
 const lerp = (k: number, a: number, b: number) => (1 - k) * a + k * b;
 
@@ -31,7 +32,7 @@ export const createSnake = (
   growth?: GrowthOptions,
 ) => {
   const baseLength = chain[0] ? getSnakeLength(chain[0]) : 0;
-  const maxLength = growth?.maxSnakeLength ?? DEFAULT_MAX_SNAKE_LENGTH;
+  const maxLength = growth?.maxSnakeLength ?? MAX_SNAKE_LENGTH;
 
   // visible body length at each step: grows by one segment per eaten cell.
   const visibleLengthAt = (step: number) =>

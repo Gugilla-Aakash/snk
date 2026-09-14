@@ -103,9 +103,9 @@ var percent = (x) => parseFloat((x * 100).toFixed(2)).toString() + "%", mergeKey
 }, createAnimation = (name, keyframes) => `@keyframes ${name}{` + mergeKeyFrames(keyframes).map(({ style, ts }) => ts.map(percent).join(",") + `{${style}}`).join("") + "}", minifyCss = (css) => css.replace(/\s+/g, " ").replace(/.\s+[,;:{}()]/g, (a) => a.replace(/\s+/g, "")).replace(/[,;:{}()]\s+./g, (a) => a.replace(/\s+/g, "")).replace(/.\s+[,;:{}()]/g, (a) => a.replace(/\s+/g, "")).replace(/[,;:{}()]\s+./g, (a) => a.replace(/\s+/g, "")).replace(/\;\s*\}/g, "}").trim();
 
 // ../svg-creator/snake.ts
-var DEFAULT_MAX_SNAKE_LENGTH = 48, lerp = (k, a, b) => (1 - k) * a + k * b, createSnake = (chain, { sizeCell, sizeDot }, duration, eatenCountPerStep = [], growth) => {
+var MAX_SNAKE_LENGTH = 48, lerp = (k, a, b) => (1 - k) * a + k * b, createSnake = (chain, { sizeCell, sizeDot }, duration, eatenCountPerStep = [], growth) => {
   const baseLength = chain[0] ? getSnakeLength(chain[0]) : 0;
-  const maxLength = growth?.maxSnakeLength ?? DEFAULT_MAX_SNAKE_LENGTH;
+  const maxLength = growth?.maxSnakeLength ?? MAX_SNAKE_LENGTH;
   const visibleLengthAt = (step) => Math.min(baseLength + (eatenCountPerStep[step] ?? 0), maxLength);
   const snakeN = chain.length ? visibleLengthAt(chain.length - 1) : 0;
   const frames = chain.map((snake) => snakeToCells(snake));
@@ -2197,6 +2197,290 @@ var getAdaptiveRoute = (grid, snake0) => {
   }
   return { chain, plan: desc.join(" | ") };
 };
+// ../generate-snake-animation/foragingRoute.ts
+init_snake();
+var key = (p) => `${p.x},${p.y}`;
+var manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+var astarPath = (grid, blocked, start, goal, extraCost = () => 0) => {
+  if (start.x === goal.x && start.y === goal.y)
+    return [];
+  const open = [
+    { ...start, g: 0, f: manhattan(start, goal), parent: null }
+  ];
+  const best = new Map([[key(start), 0]]);
+  const closed = new Set;
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1;i < open.length; i++)
+      if (open[i].f < open[bi].f)
+        bi++;
+    const cur = open.splice(bi, 1)[0];
+    const ck = key(cur);
+    if (closed.has(ck))
+      continue;
+    closed.add(ck);
+    if (cur.x === goal.x && cur.y === goal.y) {
+      const path = [];
+      let n = cur;
+      while (n && !(n.x === start.x && n.y === start.y)) {
+        path.push({ x: n.x, y: n.y });
+        n = n.parent;
+      }
+      return path.reverse();
+    }
+    for (const a of around4) {
+      const nx = cur.x + a.x;
+      const ny = cur.y + a.y;
+      if (!isInside(grid, nx, ny))
+        continue;
+      const nk = `${nx},${ny}`;
+      if (closed.has(nk))
+        continue;
+      if (blocked.has(nk) && !(nx === goal.x && ny === goal.y))
+        continue;
+      const g = cur.g + 1 + extraCost(nx, ny);
+      if ((best.get(nk) ?? Infinity) <= g)
+        continue;
+      best.set(nk, g);
+      open.push({
+        x: nx,
+        y: ny,
+        g,
+        f: g + manhattan({ x: nx, y: ny }, goal),
+        parent: cur
+      });
+    }
+  }
+  return null;
+};
+var bfsPath = (grid, blocked, start, goal) => {
+  if (start.x === goal.x && start.y === goal.y)
+    return [];
+  const seen = new Set([key(start)]);
+  const queue = [{ p: start, path: [] }];
+  while (queue.length) {
+    const { p, path } = queue.shift();
+    for (const a of around4) {
+      const nx = p.x + a.x;
+      const ny = p.y + a.y;
+      if (!isInside(grid, nx, ny))
+        continue;
+      if (nx === goal.x && ny === goal.y)
+        return [...path, { x: nx, y: ny }];
+      const nk = `${nx},${ny}`;
+      if (seen.has(nk) || blocked.has(nk))
+        continue;
+      seen.add(nk);
+      queue.push({ p: { x: nx, y: ny }, path: [...path, { x: nx, y: ny }] });
+    }
+  }
+  return null;
+};
+var simStep = (grid, body, eaten, next) => {
+  const k = key(next);
+  const food = isInside(grid, next.x, next.y) && !isEmpty(getColor(grid, next.x, next.y)) && !eaten.has(k);
+  const grows = food && body.length < MAX_SNAKE_LENGTH;
+  const obstacle = grows ? body : body.slice(0, -1);
+  if (obstacle.some((c) => c.x === next.x && c.y === next.y))
+    return { body, ate: false, collision: true };
+  const nextBody = grows ? [next, ...body] : [next, ...body.slice(0, -1)];
+  if (food)
+    eaten.add(k);
+  return { body: nextBody, ate: food, collision: false };
+};
+var bodySet = (body, excludeTailTip) => new Set((excludeTailTip ? body.slice(0, -1) : body).map(key));
+var SWEEP_MIN_WIDTH = 2;
+var RUN_PENALTY = 1000;
+var getForagingRoute = (grid, snake0) => {
+  const chain = [];
+  let snake = snake0;
+  while (getHeadX(snake) !== 0 || getHeadY(snake) !== 0) {
+    const hx = getHeadX(snake);
+    const hy = getHeadY(snake);
+    const dx = hx !== 0 ? Math.sign(0 - hx) : 0;
+    const dy = hx !== 0 ? 0 : Math.sign(0 - hy);
+    if (snakeWillSelfCollide(snake, dx, dy))
+      throw new Error("foraging route collides on entry");
+    snake = nextSnake(snake, dx, dy);
+    chain.push(snake);
+  }
+  let body = snakeToCells(snake);
+  const eaten = new Set;
+  {
+    const head = body[0];
+    const k = key(head);
+    if (isInside(grid, head.x, head.y) && !isEmpty(getColor(grid, head.x, head.y))) {
+      eaten.add(k);
+      if (body.length < MAX_SNAKE_LENGTH)
+        body = [...body, { ...body[body.length - 1] }];
+    }
+  }
+  const foods = [];
+  for (let x = 0;x < grid.width; x++)
+    for (let y = 0;y < grid.height; y++)
+      if (!isEmpty(getColor(grid, x, y)) && !eaten.has(`${x},${y}`))
+        foods.push({ x, y });
+  foods.sort((a, b) => a.x - b.x || a.y - b.y);
+  const denseRuns = planRegions(grid).filter((r) => r.kind === "green" && r.to - r.from + 1 >= SWEEP_MIN_WIDTH);
+  const runCells = (list) => {
+    const s = new Set;
+    for (const o of list)
+      for (let x = o.from;x <= o.to; x++)
+        for (let y = 0;y < grid.height; y++)
+          s.add(`${x},${y}`);
+    return s;
+  };
+  const inDenseRun = (x) => denseRuns.some((r) => x >= r.from && x <= r.to);
+  const runCost = (walls) => (x, y) => walls.has(`${x},${y}`) ? RUN_PENALTY : 0;
+  const budget = 8 * grid.width * grid.height + 64;
+  let stalls = 0;
+  let legs = 0;
+  let swept = 0;
+  const stallsAt = [];
+  const purgeEaten = () => {
+    for (let i = foods.length - 1;i >= 0; i--)
+      if (eaten.has(key(foods[i])))
+        foods.splice(i, 1);
+  };
+  const takeStep = (cell) => {
+    if (chain.length > budget)
+      throw new Error("foraging route over step budget");
+    const r = simStep(grid, body, eaten, cell);
+    if (r.collision)
+      throw new Error("foraging step collides");
+    body = r.body;
+    chain.push(createSnakeFromCells(body));
+    purgeEaten();
+  };
+  const hunt = (targets, blocked, cost, fallbackTargets) => {
+    for (;; ) {
+      const primary = targets();
+      if (!primary.length)
+        return;
+      const head = body[0];
+      const walls = blocked(body);
+      const tryPool = (pool) => {
+        const ranked = [];
+        for (const food of pool) {
+          const path = astarPath(grid, walls, head, food, cost);
+          if (path)
+            ranked.push({ food, path });
+        }
+        ranked.sort((a, b) => a.path.length - b.path.length || a.food.x - b.food.x || a.food.y - b.food.y);
+        for (const { food, path } of ranked) {
+          let trialBody = body.map((c) => ({ ...c }));
+          const trialEaten = new Set(eaten);
+          let ok = true;
+          for (const cell of path) {
+            const r = simStep(grid, trialBody, trialEaten, cell);
+            if (r.collision) {
+              ok = false;
+              break;
+            }
+            trialBody = r.body;
+          }
+          if (!ok)
+            continue;
+          const newHead = trialBody[0];
+          const newTail = trialBody[trialBody.length - 1];
+          if (isInside(grid, newTail.x, newTail.y) && bfsPath(grid, bodySet(trialBody, true), newHead, newTail) === null) {
+            if (process.env.FORAGE_DEBUG)
+              console.log(`veto target=${key(food)} path=${path.map(key).join(" ")} body=${trialBody.map(key).join(" ")}`);
+            continue;
+          }
+          for (const cell of path)
+            takeStep(cell);
+          legs++;
+          stalls = 0;
+          return true;
+        }
+        return false;
+      };
+      if (tryPool(primary))
+        continue;
+      if (fallbackTargets) {
+        const primaryKeys = new Set(primary.map(key));
+        if (tryPool(fallbackTargets().filter((f) => !primaryKeys.has(key(f)))))
+          continue;
+      }
+      const tail = body[body.length - 1];
+      const stallPath = astarPath(grid, walls, head, tail, cost) ?? astarPath(grid, bodySet(body, true), head, tail);
+      if (!stallPath || !stallPath.length) {
+        if (!isInside(grid, tail.x, tail.y)) {
+          const options = around4.map((a) => ({ x: head.x + a.x, y: head.y + a.y })).filter((c) => {
+            const r = simStep(grid, body, new Set(eaten), c);
+            return !r.collision;
+          }).sort((a, b) => manhattan(a, tail) - manhattan(b, tail) || around4.findIndex((d) => head.x + d.x === a.x && head.y + d.y === a.y) - around4.findIndex((d) => head.x + d.x === b.x && head.y + d.y === b.y));
+          if (!options.length)
+            throw new Error("foraging route is trapped");
+          takeStep(options[0]);
+          stallsAt.push(chain.length - 1);
+          if (++stalls > grid.width * grid.height)
+            throw new Error("foraging route stalled too long");
+          continue;
+        }
+        throw new Error("foraging route is trapped");
+      }
+      takeStep(stallPath[0]);
+      stallsAt.push(chain.length - 1);
+      if (++stalls > grid.width * grid.height)
+        throw new Error(`foraging route stalled too long (foods=${foods.map(key).join(" ")} body=${body.map(key).join(" ")})`);
+    }
+  };
+  const sparseWalls = runCells(denseRuns);
+  hunt(() => foods.filter((f) => !inDenseRun(f.x)), (b) => new Set([...bodySet(b, true), ...sparseWalls]), runCost(sparseWalls), () => foods.slice());
+  const leftovers = [];
+  const sweptRuns = [];
+  denseRuns.forEach((run) => {
+    const tainted = body.some((c) => c.x >= run.from && c.x <= run.to);
+    const uneaten = foods.filter((f) => f.x >= run.from && f.x <= run.to);
+    if (tainted || !uneaten.length) {
+      leftovers.push(...uneaten);
+      return;
+    }
+    const corner = { x: run.from, y: 0 };
+    try {
+      const blockedBody = bodySet(body, true);
+      const beeline = astarPath(grid, new Set([
+        ...blockedBody,
+        ...runCells(denseRuns.filter((o) => o !== run && !sweptRuns.includes(o))),
+        ...(() => {
+          const s = runCells([run]);
+          s.delete(`${corner.x},${corner.y}`);
+          return s;
+        })()
+      ]), body[0], corner) ?? astarPath(grid, new Set([
+        ...blockedBody,
+        ...runCells(denseRuns.filter((o) => o !== run && !sweptRuns.includes(o)))
+      ]), body[0], corner) ?? astarPath(grid, blockedBody, body[0], corner);
+      if (!beeline)
+        throw new Error("foraging sweep cannot reach its run");
+      for (const cell of beeline)
+        takeStep(cell);
+      const sweep = serpentineRect(run.from, run.to, grid.height, "top-left", "column");
+      const list = sweep.slice();
+      if (list.length && list[0].x === body[0].x && list[0].y === body[0].y)
+        list.shift();
+      for (const cell of list)
+        takeStep(cell);
+      sweptRuns.push(run);
+      swept++;
+      stalls = 0;
+    } catch (err) {
+      if (/budget/.test(err.message))
+        throw err;
+      for (const f of foods)
+        if (f.x >= run.from && f.x <= run.to && !eaten.has(key(f)))
+          leftovers.push(f);
+    }
+  });
+  hunt(() => foods.filter((f) => leftovers.some((l) => l.x === f.x && l.y === f.y)), (b) => bodySet(b, true), () => 0);
+  return {
+    chain,
+    stats: `${eaten.size} foods (${swept} swept), ${chain.length} steps, ${legs} legs, ${stalls} stalls`,
+    stallsAt
+  };
+};
 
 // ../types/__fixtures__/snake.ts
 var create = (length) => createSnakeFromCells(Array.from({ length }, (_, i) => ({ x: i, y: -1 })));
@@ -2314,13 +2598,20 @@ var generateSnakeAnimation = async (source, outputs) => {
   console.log("\uD83D\uDCE1 computing best route");
   let chain;
   try {
-    const route = getAdaptiveRoute(grid, snake);
-    console.log(`\uD83E\uDDED sweep: ${route.plan}`);
+    const route = getForagingRoute(grid, snake);
+    console.log(`\uD83C\uDFAF forage: ${route.stats}`);
     chain = route.chain;
   } catch (err) {
-    console.log(`⚠️ adaptive sweep failed (${err}), using solver route`);
-    chain = getBestRoute(grid, snake);
-    chain.push(...getPathToPose(chain.slice(-1)[0], snake));
+    console.log(`⚠️ foraging failed (${err}), using adaptive sweep`);
+    try {
+      const route = getAdaptiveRoute(grid, snake);
+      console.log(`\uD83E\uDDED sweep: ${route.plan}`);
+      chain = route.chain;
+    } catch (err2) {
+      console.log(`⚠️ adaptive sweep failed (${err2}), using solver route`);
+      chain = getBestRoute(grid, snake);
+      chain.push(...getPathToPose(chain.slice(-1)[0], snake));
+    }
   }
   return Promise.all(outputs.map(async (out, i) => {
     if (!out)

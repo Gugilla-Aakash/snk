@@ -5,6 +5,7 @@ import { getGitlabUserContribution } from "@snk/gitlab-user-contribution";
 import { getBestRoute } from "@snk/solver/getBestRoute";
 import { getPathToPose } from "@snk/solver/getPathToPose";
 import { getAdaptiveRoute } from "./hamiltonianRoute";
+import { getForagingRoute } from "./foragingRoute";
 import type { DrawOptions } from "@snk/svg-creator";
 import { snake4 } from "@snk/types/__fixtures__/snake";
 import { cellsToGrid } from "./cellsToGrid";
@@ -52,22 +53,28 @@ export const generateSnakeAnimation = async (
   console.log(`🎣 fetching user contribution from ${source.platform}`);
   const cells = await getUserContribution(source);
   const grid = cellsToGrid(cells);
-  // adaptive sweep: fast horizontal passes over empty week-columns, vertical
-  // eating passes where the greens are. visits every cell exactly once, so
-  // the grown body can never touch itself (linear time, no search). falls
-  // back to the solver route if anything unexpected happens.
+  // greedy-TSP foraging with A* legs and reach-tail lookahead: hunts the
+  // nearest green with shortest paths, committing only provably safe legs.
+  // falls back to the adaptive sweep, then the solver route.
   const snake = snake4;
 
   console.log("📡 computing best route");
   let chain;
   try {
-    const route = getAdaptiveRoute(grid, snake);
-    console.log(`🧭 sweep: ${route.plan}`);
+    const route = getForagingRoute(grid, snake);
+    console.log(`🎯 forage: ${route.stats}`);
     chain = route.chain;
   } catch (err) {
-    console.log(`⚠️ adaptive sweep failed (${err}), using solver route`);
-    chain = getBestRoute(grid, snake)!;
-    chain.push(...getPathToPose(chain.slice(-1)[0], snake)!);
+    console.log(`⚠️ foraging failed (${err}), using adaptive sweep`);
+    try {
+      const route = getAdaptiveRoute(grid, snake);
+      console.log(`🧭 sweep: ${route.plan}`);
+      chain = route.chain;
+    } catch (err2) {
+      console.log(`⚠️ adaptive sweep failed (${err2}), using solver route`);
+      chain = getBestRoute(grid, snake)!;
+      chain.push(...getPathToPose(chain.slice(-1)[0], snake)!);
+    }
   }
 
   return Promise.all(
