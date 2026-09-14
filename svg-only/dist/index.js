@@ -114,15 +114,30 @@ var DEFAULT_MAX_SNAKE_LENGTH = 48, lerp = (k, a, b) => (1 - k) * a + k * b, crea
     const cells = frames[step];
     const tail = cells[cells.length - 1];
     const visible = visibleLengthAt(step);
-    for (let i = 0;i < snakeN; i++) {
+    const raw = [];
+    for (let i = 0;i < visible; i++) {
       if (i < cells.length)
-        snakeParts[i].push(cells[i]);
-      else if (i < visible) {
+        raw.push(cells[i]);
+      else {
         const back = i - cells.length + 1;
         const past = frames[Math.max(0, step - back)];
-        snakeParts[i].push(past[past.length - 1]);
-      } else
+        raw.push(past[past.length - 1]);
+      }
+    }
+    const used = new Set;
+    for (let i = 0;i < snakeN; i++) {
+      if (i >= visible) {
         snakeParts[i].push(tail);
+        continue;
+      }
+      const p = raw[i];
+      const key = p.x + "," + p.y;
+      if (used.has(key))
+        snakeParts[i].push(tail);
+      else {
+        used.add(key);
+        snakeParts[i].push(p);
+      }
     }
   }
   const svgElements = snakeParts.map((_, i, { length }) => {
@@ -2224,6 +2239,11 @@ var parseEntry = (entry) => {
     drawOptions.colorBackground = sp.get("color_background");
   if (sp.has("color_dot_border"))
     drawOptions.colorDotBorder = sp.get("color_dot_border");
+  if (sp.has("step_duration_ms")) {
+    const v = parseInt(sp.get("step_duration_ms"), 10);
+    if (Number.isFinite(v) && v > 0)
+      animationOptions.stepDurationMs = v;
+  }
   return {
     filename,
     format,

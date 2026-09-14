@@ -51,16 +51,37 @@ export const createSnake = (
     const tail = cells[cells.length - 1];
     const visible = visibleLengthAt(step);
 
-    for (let i = 0; i < snakeN; i++) {
-      if (i < cells.length) snakeParts[i].push(cells[i]);
-      else if (i < visible) {
+    const raw: Point[] = [];
+    for (let i = 0; i < visible; i++) {
+      if (i < cells.length) raw.push(cells[i]);
+      else {
         // grown segment: follow where the tail was a few steps ago.
         // segments can't outgrow elapsed steps (max one eat per step),
         // so step - back is always >= 0 in practice (clamped for safety).
         const back = i - cells.length + 1;
         const past = frames[Math.max(0, step - back)];
-        snakeParts[i].push(past[past.length - 1]);
-      } else snakeParts[i].push(tail);
+        raw.push(past[past.length - 1]);
+      }
+    }
+
+    // nokia rule, rendered: no two shown segments may share a cell in one
+    // frame. the solver only avoids its short body, so a grown tail can lag
+    // onto the head's cell when the trail loops back (38/351 steps on a real
+    // grid). the segment closest to the head wins; losers park on the tail
+    // cluster for that frame instead of stacking onto the body.
+    const used = new Set<string>();
+    for (let i = 0; i < snakeN; i++) {
+      if (i >= visible) {
+        snakeParts[i].push(tail);
+        continue;
+      }
+      const p = raw[i];
+      const key = p.x + "," + p.y;
+      if (used.has(key)) snakeParts[i].push(tail);
+      else {
+        used.add(key);
+        snakeParts[i].push(p);
+      }
     }
   }
 
