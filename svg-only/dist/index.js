@@ -2059,6 +2059,56 @@ var getPathToPose = (snake0, target, grid) => {
   }
 };
 
+// ../generate-snake-animation/hamiltonianRoute.ts
+var ORIENTATIONS = ["row-wise", "column-wise"];
+var pickOrientation = () => ORIENTATIONS[Math.floor(Math.random() * ORIENTATIONS.length)];
+var sweepCells = (grid, orientation) => {
+  const cells = [];
+  if (orientation === "row-wise") {
+    for (let y = 0;y < grid.height; y++) {
+      if (y % 2 === 0)
+        for (let x = 0;x < grid.width; x++)
+          cells.push({ x, y });
+      else
+        for (let x = grid.width - 1;x >= 0; x--)
+          cells.push({ x, y });
+    }
+  } else {
+    for (let x = 0;x < grid.width; x++) {
+      if (x % 2 === 0)
+        for (let y = 0;y < grid.height; y++)
+          cells.push({ x, y });
+      else
+        for (let y = grid.height - 1;y >= 0; y--)
+          cells.push({ x, y });
+    }
+  }
+  return cells;
+};
+var getHamiltonianRoute = (grid, snake0, orientation) => {
+  const chain = [];
+  let snake = snake0;
+  const stepTo = (x, y) => {
+    const dx = x - getHeadX(snake);
+    const dy = y - getHeadY(snake);
+    if (Math.abs(dx) + Math.abs(dy) !== 1)
+      throw new Error(`hamiltonian route is not contiguous at (${x},${y})`);
+    if (snakeWillSelfCollide(snake, dx, dy))
+      throw new Error(`hamiltonian route collides with itself at (${x},${y})`);
+    snake = nextSnake(snake, dx, dy);
+    chain.push(snake);
+  };
+  while (getHeadX(snake) !== 0 || getHeadY(snake) !== 0) {
+    if (getHeadX(snake) !== 0)
+      stepTo(getHeadX(snake) + Math.sign(0 - getHeadX(snake)), getHeadY(snake));
+    else
+      stepTo(0, getHeadY(snake) + Math.sign(0 - getHeadY(snake)));
+  }
+  for (const { x, y } of sweepCells(grid, orientation).slice(1))
+    stepTo(x, y);
+  return chain;
+};
+
 // ../types/__fixtures__/snake.ts
 var create = (length) => createSnakeFromCells(Array.from({ length }, (_, i) => ({ x: i, y: -1 })));
 var snake1 = create(1);
@@ -2173,8 +2223,16 @@ var generateSnakeAnimation = async (source, outputs) => {
   const grid = cellsToGrid(cells);
   const snake = snake4;
   console.log("\uD83D\uDCE1 computing best route");
-  const chain = getBestRoute(grid, snake);
-  chain.push(...getPathToPose(chain.slice(-1)[0], snake));
+  const orientation = pickOrientation();
+  console.log(`\uD83E\uDDED sweep: ${orientation}`);
+  let chain;
+  try {
+    chain = getHamiltonianRoute(grid, snake, orientation);
+  } catch (err) {
+    console.log(`⚠️ hamiltonian sweep failed (${err}), using solver route`);
+    chain = getBestRoute(grid, snake);
+    chain.push(...getPathToPose(chain.slice(-1)[0], snake));
+  }
   return Promise.all(outputs.map(async (out, i) => {
     if (!out)
       return;
