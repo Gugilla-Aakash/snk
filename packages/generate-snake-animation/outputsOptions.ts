@@ -56,6 +56,10 @@ export const parseEntry = (entry: string) => {
     drawOptions.colorBackground = sp.get("color_background")!;
   if (sp.has("color_dot_border"))
     drawOptions.colorDotBorder = sp.get("color_dot_border")!;
+  if (sp.has("step_duration_ms")) {
+    const v = parseInt(sp.get("step_duration_ms")!, 10);
+    if (Number.isFinite(v) && v > 0) animationOptions.stepDurationMs = v;
+  }
 
   return {
     filename,

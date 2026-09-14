@@ -51,6 +51,9 @@ export const generateSnakeAnimation = async (
   console.log(`🎣 fetching user contribution from ${source.platform}`);
   const cells = await getUserContribution(source);
   const grid = cellsToGrid(cells);
+  // keep the short solver body: planning with a long body is exponentially
+  // slower (len 4 ~19s, len 5 ~112s, len 6+ times out on a real 53x7 grid)
+  // and can fail outright. growth is rendered on top (see svg-creator).
   const snake = snake4;
 
   console.log("📡 computing best route");

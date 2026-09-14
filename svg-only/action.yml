@@ -27,6 +27,11 @@ inputs:
       - color_dots:   Coma separated list of dots color.
                       The first one is 0 contribution, then it goes from the low contribution to the highest.
                       Exactly 5 colors are expected.
+      - step_duration_ms: Duration of one step in milliseconds (default 100).
+                      Higher values slow the animation down.
+                      fork-only options: the snake grows as it eats (up to
+                      48 segments) and grown segments never stack onto the
+                      body in one frame.
 
       example:
         outputs: |
