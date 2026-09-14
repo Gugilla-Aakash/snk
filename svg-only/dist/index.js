@@ -2367,7 +2367,7 @@ var getForagingRoute = (grid, snake0) => {
             ranked.push({ food, path });
         }
         ranked.sort((a, b) => a.path.length - b.path.length || a.food.x - b.food.x || a.food.y - b.food.y);
-        for (const { food, path } of ranked) {
+        for (const { path } of ranked) {
           let trialBody = body.map((c) => ({ ...c }));
           const trialEaten = new Set(eaten);
           let ok = true;
@@ -2383,11 +2383,8 @@ var getForagingRoute = (grid, snake0) => {
             continue;
           const newHead = trialBody[0];
           const newTail = trialBody[trialBody.length - 1];
-          if (isInside(grid, newTail.x, newTail.y) && bfsPath(grid, bodySet(trialBody, true), newHead, newTail) === null) {
-            if (process.env.FORAGE_DEBUG)
-              console.log(`veto target=${key(food)} path=${path.map(key).join(" ")} body=${trialBody.map(key).join(" ")}`);
+          if (isInside(grid, newTail.x, newTail.y) && bfsPath(grid, bodySet(trialBody, true), newHead, newTail) === null)
             continue;
-          }
           for (const cell of path)
             takeStep(cell);
           legs++;
@@ -2404,7 +2401,7 @@ var getForagingRoute = (grid, snake0) => {
           continue;
       }
       const tail = body[body.length - 1];
-      const stallPath = astarPath(grid, walls, head, tail, cost) ?? astarPath(grid, bodySet(body, true), head, tail);
+      const stallPath = astarPath(grid, bodySet(body, true), head, tail, cost) ?? astarPath(grid, bodySet(body, true), head, tail);
       if (!stallPath || !stallPath.length) {
         if (!isInside(grid, tail.x, tail.y)) {
           const options = around4.map((a) => ({ x: head.x + a.x, y: head.y + a.y })).filter((c) => {
@@ -2428,7 +2425,7 @@ var getForagingRoute = (grid, snake0) => {
     }
   };
   const sparseWalls = runCells(denseRuns);
-  hunt(() => foods.filter((f) => !inDenseRun(f.x)), (b) => new Set([...bodySet(b, true), ...sparseWalls]), runCost(sparseWalls), () => foods.slice());
+  hunt(() => foods.filter((f) => !inDenseRun(f.x)), (b) => bodySet(b, true), runCost(sparseWalls), () => foods.slice());
   const leftovers = [];
   const sweptRuns = [];
   denseRuns.forEach((run) => {

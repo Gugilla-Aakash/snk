@@ -169,6 +169,48 @@ it("hunts strays first, then sweeps dense runs top-down", () => {
   expect(eats).toBe(greens);
 });
 
+it("reaches sparse food beyond a dense band without stranding", () => {
+  // full-height dense band with food on both sides: penalized crossing,
+  // never a sealing ban. tainted runs degrade to leftovers, never deadlock.
+  const grid = withFoods(10, 7, [
+    [1, 6],
+    [8, 3],
+    ...[4, 5].flatMap((x) =>
+      [0, 1, 2, 3, 4, 5, 6].map((y) => [x, y] as [number, number]),
+    ),
+  ]);
+  const { chain, stallsAt } = getForagingRoute(grid, snake4);
+  const heads = chain.map((s) => snakeToCells(s)[0]);
+
+  let greens = 0;
+  for (let x = 0; x < 10; x++)
+    for (let y = 0; y < 7; y++) if (!isEmpty(getColor(grid, x, y))) greens++;
+  const seen = new Set<string>();
+  let eats = 0;
+  for (const h of heads) {
+    const k = `${h.x},${h.y}`;
+    if (!isEmpty(getColor(grid, h.x, h.y)) && !seen.has(k)) eats++;
+    seen.add(k);
+  }
+  expect(eats).toBe(greens);
+
+  let prev = snakeToCells(snake4)[0];
+  for (const h of heads) {
+    expect(Math.abs(h.x - prev.x) + Math.abs(h.y - prev.y)).toBe(1);
+    prev = h;
+  }
+  let body = snakeToCells(snake4);
+  for (const snake of chain) {
+    const cells = snakeToCells(snake);
+    const head = cells[0];
+    expect(
+      body.slice(0, -1).some((c) => c.x === head.x && c.y === head.y),
+    ).toBe(false);
+    body = cells;
+  }
+  expect(stallsAt.length).toBeLessThan(70);
+});
+
 it("sweeps multiple dense runs left to right", () => {
   // stray stays clear of the runs, so both dives stay pristine.
   const grid = withFoods(16, 7, [

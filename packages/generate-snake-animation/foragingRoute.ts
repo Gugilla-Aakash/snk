@@ -278,7 +278,7 @@ export const getForagingRoute = (
             a.food.y - b.food.y,
         );
 
-        for (const { food, path } of ranked) {
+        for (const { path } of ranked) {
           let trialBody = body.map((c) => ({ ...c }));
           const trialEaten = new Set(eaten);
           let ok = true;
@@ -299,13 +299,8 @@ export const getForagingRoute = (
           if (
             isInside(grid, newTail.x, newTail.y) &&
             bfsPath(grid, bodySet(trialBody, true), newHead, newTail) === null
-          ) {
-            if (process.env.FORAGE_DEBUG)
-              console.log(
-                `veto target=${key(food)} path=${path.map(key).join(" ")} body=${trialBody.map(key).join(" ")}`,
-              );
+          )
             continue;
-          }
 
           for (const cell of path) takeStep(cell);
           legs++;
@@ -321,11 +316,11 @@ export const getForagingRoute = (
         if (tryPool(fallbackTargets().filter((f) => !primaryKeys.has(key(f)))))
           continue;
       }
-
-      // no safe target: chase the tail one step and re-evaluate.
+      // no safe target: chase the tail one step and re-evaluate. penalized
+      // steering keeps fresh trail out of future sweeps when possible.
       const tail = body[body.length - 1];
       const stallPath =
-        astarPath(grid, walls, head, tail, cost) ??
+        astarPath(grid, bodySet(body, true), head, tail, cost) ??
         astarPath(grid, bodySet(body, true), head, tail);
       if (!stallPath || !stallPath.length) {
         if (!isInside(grid, tail.x, tail.y)) {
@@ -364,12 +359,14 @@ export const getForagingRoute = (
     }
   };
 
-  // Phase 1: hunt sparse food; future sweeps softly walled off. Dense food
-  // is only touched opportunistically when nothing sparse is committable.
+  // Phase 1: hunt sparse food; future sweeps softly walled off (steered
+  // around via penalty, never banned: hard bans seal full-height strips and
+  // strand reachable food). Dense food is only touched opportunistically
+  // when nothing sparse is committable.
   const sparseWalls = runCells(denseRuns);
   hunt(
     () => foods.filter((f) => !inDenseRun(f.x)),
-    (b) => new Set([...bodySet(b, true), ...sparseWalls]),
+    (b) => bodySet(b, true),
     runCost(sparseWalls),
     () => foods.slice(),
   );
